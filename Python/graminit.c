@@ -2230,7 +2230,7 @@ static label labels[179] = {
     {1, "if"},
     {1, "elif"},
     {1, "else"},
-    {1, "match"},
+    {1, "matching"},
     {1, "case"},
     {1, "while"},
     {1, "for"},
