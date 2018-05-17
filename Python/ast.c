@@ -3653,100 +3653,6 @@ ast_for_if_stmt(struct compiling *c, const node *n)
 }
 
 static stmt_ty
-ast_for_match_stmt(struct compiling *c, const node *n)
-{
-	/* match_stmt: 'match' test ':' NEWLINE
-	('case' test ':' suite)*
-	['else' ':' suite]
-	*/
-	char *s;
-
-	REQ(n, match_stmt);
-
-	s = STR(CHILD(n, 4));
-	/* s[0], the first character in the string, will be
-	'c' for c_ase, or
-	'e' for e_lse
-	*/
-	if (s[0] == 'e') {
-		expr_ty expression;
-		asdl_seq *seq;
-
-		expression = ast_for_expr(c, CHILD(n, 1));
-		if (!expression)
-			return NULL;
-		seq = ast_for_suite(c, CHILD(n, 6));
-		if (!seq)
-			return NULL;
-
-		return Match(expression, seq, LINENO(n), n->n_col_offset,
-			c->c_arena);
-	}
-	else if (s[0] == 'c') {
-		int i, n_elif, has_else = 0;
-		expr_ty expression;
-		asdl_seq *orelse = NULL;
-		n_elif = NCH(n) - 4;
-		/* must reference the child n_elif+1 since 'else' token is third,
-		not fourth, child from the end. */
-		if (TYPE(CHILD(n, (n_elif + 1))) == NAME
-			&& STR(CHILD(n, (n_elif + 1)))[2] == 's') {
-			has_else = 1;
-			n_elif -= 3;
-		}
-		n_elif /= 4;
-
-		if (has_else) {
-			asdl_seq *suite_seq;
-
-			orelse = _Py_asdl_seq_new(1, c->c_arena);
-			if (!orelse)
-				return NULL;
-			expression = ast_for_expr(c, CHILD(n, NCH(n) - 6));
-			if (!expression)
-				return NULL;
-			suite_seq = ast_for_suite(c, CHILD(n, NCH(n) - 1));
-			if (!suite_seq)
-				return NULL;
-
-			asdl_seq_SET(orelse, 0,
-				Match(expression, suite_seq,
-					LINENO(CHILD(n, NCH(n) - 6)),
-					CHILD(n, NCH(n) - 6)->n_col_offset,
-					c->c_arena));
-			/* the just-created orelse handled the last elif */
-			n_elif--;
-		}
-
-		for (i = 0; i < n_elif; i++) {
-			int off = 5 + (n_elif - i - 1) * 4;
-			asdl_seq *newobj = _Py_asdl_seq_new(1, c->c_arena);
-			if (!newobj)
-				return NULL;
-			expression = ast_for_expr(c, CHILD(n, off));
-			if (!expression)
-				return NULL;
-
-			asdl_seq_SET(newobj, 0,
-				Match(expression, orelse,
-					LINENO(CHILD(n, off)),
-					CHILD(n, off)->n_col_offset, c->c_arena));
-			orelse = newobj;
-		}
-		expression = ast_for_expr(c, CHILD(n, 1));
-		if (!expression)
-			return NULL;
-
-		return Match(expression, orelse,
-			LINENO(n), n->n_col_offset, c->c_arena);
-	}
-
-	PyErr_Format(PyExc_SystemError,
-		"unexpected token in 'match' statement: %s", s);
-	return NULL;
-}
-
-static stmt_ty
 ast_for_while_stmt(struct compiling *c, const node *n)
 {
     /* while_stmt: 'while' test ':' suite ['else' ':' suite] */
@@ -4131,8 +4037,6 @@ ast_for_stmt(struct compiling *c, const node *n)
                 return ast_for_decorated(c, ch);
             case async_stmt:
                 return ast_for_async_stmt(c, ch);
-			case match_stmt:
-				return ast_for_match_stmt(c, ch);
             default:
                 PyErr_Format(PyExc_SystemError,
                              "unhandled small_stmt: TYPE=%d NCH=%d\n",
