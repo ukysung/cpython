@@ -152,7 +152,6 @@ struct _stmt {
         
         struct {
             expr_ty test;
-            asdl_seq *body;
             asdl_seq *orelse;
         } Match;
         
@@ -491,9 +490,9 @@ stmt_ty _Py_While(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno,
 #define If(a0, a1, a2, a3, a4, a5) _Py_If(a0, a1, a2, a3, a4, a5)
 stmt_ty _Py_If(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno,
                int col_offset, PyArena *arena);
-#define Match(a0, a1, a2, a3, a4, a5) _Py_Match(a0, a1, a2, a3, a4, a5)
-stmt_ty _Py_Match(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno,
-                  int col_offset, PyArena *arena);
+#define Match(a0, a1, a2, a3, a4) _Py_Match(a0, a1, a2, a3, a4)
+stmt_ty _Py_Match(expr_ty test, asdl_seq * orelse, int lineno, int col_offset,
+                  PyArena *arena);
 #define With(a0, a1, a2, a3, a4) _Py_With(a0, a1, a2, a3, a4)
 stmt_ty _Py_With(asdl_seq * items, asdl_seq * body, int lineno, int col_offset,
                  PyArena *arena);
