@@ -3653,15 +3653,15 @@ ast_for_if_stmt(struct compiling *c, const node *n)
 }
 
 static stmt_ty
-ast_for_match_stmt(struct compiling *c, const node *n)
+ast_for_switch_stmt(struct compiling *c, const node *n)
 {
-	/* match_stmt: 'match' test ':' NEWLINE
+	/* switch_stmt: 'switch' test ':' NEWLINE
 	('case' test ':' suite)*
 	['else' ':' suite]
 	*/
 	char *s;
 
-	REQ(n, match_stmt);
+	REQ(n, switch_stmt);
 
 	s = STR(CHILD(n, 4));
 	/* s[0], the first character in the string, will be
@@ -4131,8 +4131,8 @@ ast_for_stmt(struct compiling *c, const node *n)
                 return ast_for_decorated(c, ch);
             case async_stmt:
                 return ast_for_async_stmt(c, ch);
-			case match_stmt:
-				return ast_for_match_stmt(c, ch);
+			case switch_stmt:
+				return ast_for_switch_stmt(c, ch);
             default:
                 PyErr_Format(PyExc_SystemError,
                              "unhandled small_stmt: TYPE=%d NCH=%d\n",

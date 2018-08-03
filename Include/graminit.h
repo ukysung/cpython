@@ -42,7 +42,7 @@
 #define compound_stmt 295
 #define async_stmt 296
 #define if_stmt 297
-#define match_stmt 298
+#define switch_stmt 298
 #define while_stmt 299
 #define for_stmt 300
 #define try_stmt 301
