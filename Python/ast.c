@@ -3679,7 +3679,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 		if (!seq)
 			return NULL;
 
-		return Match(expression, seq, LINENO(n), n->n_col_offset,
+		return Switch(expression, seq, LINENO(n), n->n_col_offset,
 			c->c_arena);
 	}
 	else if (s[0] == 'c') {
@@ -3710,7 +3710,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 				return NULL;
 
 			asdl_seq_SET(orelse, 0,
-				Match(expression, suite_seq,
+				Switch(expression, suite_seq,
 					LINENO(CHILD(n, NCH(n) - 6)),
 					CHILD(n, NCH(n) - 6)->n_col_offset,
 					c->c_arena));
@@ -3728,7 +3728,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 				return NULL;
 
 			asdl_seq_SET(newobj, 0,
-				Match(expression, orelse,
+				Switch(expression, orelse,
 					LINENO(CHILD(n, off)),
 					CHILD(n, off)->n_col_offset, c->c_arena));
 			orelse = newobj;
@@ -3737,12 +3737,12 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 		if (!expression)
 			return NULL;
 
-		return Match(expression, orelse,
+		return Switch(expression, orelse,
 			LINENO(n), n->n_col_offset, c->c_arena);
 	}
 
 	PyErr_Format(PyExc_SystemError,
-		"unexpected token in 'match' statement: %s", s);
+		"unexpected token in 'switch' statement: %s", s);
 	return NULL;
 }
 
