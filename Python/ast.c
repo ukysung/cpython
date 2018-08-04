@@ -427,6 +427,9 @@ validate_stmt(stmt_ty stmt)
         return validate_expr(stmt->v.If.test, Load) &&
             validate_body(stmt->v.If.body, "If") &&
             validate_stmts(stmt->v.If.orelse);
+	case Switch_kind:
+		return validate_expr(stmt->v.Switch.test, Load) &&
+			validate_stmts(stmt->v.Switch.orelse);
     case With_kind:
         if (!validate_nonempty_seq(stmt->v.With.items, "items", "With"))
             return 0;
@@ -3660,8 +3663,11 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 	['else' ':' suite]
 	*/
 	char *s;
+	identifier id;
 
 	REQ(n, switch_stmt);
+
+	id = new_identifier("_tmp", c);
 
 	s = STR(CHILD(n, 4));
 	/* s[0], the first character in the string, will be
@@ -3679,7 +3685,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 		if (!seq)
 			return NULL;
 
-		return Switch(expression, seq, LINENO(n), n->n_col_offset,
+		return Switch(id, expression, seq, LINENO(n), n->n_col_offset,
 			c->c_arena);
 	}
 	else if (s[0] == 'c') {
@@ -3710,7 +3716,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 				return NULL;
 
 			asdl_seq_SET(orelse, 0,
-				Switch(expression, suite_seq,
+				Switch(id, expression, suite_seq,
 					LINENO(CHILD(n, NCH(n) - 6)),
 					CHILD(n, NCH(n) - 6)->n_col_offset,
 					c->c_arena));
@@ -3728,7 +3734,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 				return NULL;
 
 			asdl_seq_SET(newobj, 0,
-				Switch(expression, orelse,
+				Switch(id, expression, orelse,
 					LINENO(CHILD(n, off)),
 					CHILD(n, off)->n_col_offset, c->c_arena));
 			orelse = newobj;
@@ -3737,7 +3743,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 		if (!expression)
 			return NULL;
 
-		return Switch(expression, orelse,
+		return Switch(id, expression, orelse,
 			LINENO(n), n->n_col_offset, c->c_arena);
 	}
 

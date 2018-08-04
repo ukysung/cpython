@@ -1404,6 +1404,9 @@ find_ann(asdl_seq *stmts)
             res = find_ann(st->v.If.body) ||
                   find_ann(st->v.If.orelse);
             break;
+		case Switch_kind:
+			res = find_ann(st->v.Switch.orelse);
+			break;
         case With_kind:
             res = find_ann(st->v.With.body);
             break;
@@ -2155,6 +2158,39 @@ compiler_if(struct compiler *c, stmt_ty s)
 }
 
 static int
+compiler_switch(struct compiler *c, stmt_ty s)
+{
+	basicblock *end, *next;
+	assert(s->kind == Switch_kind);
+	end = compiler_new_block(c);
+	if (end == NULL)
+		return 0;
+
+	if (asdl_seq_LEN(s->v.Switch.orelse)) {
+		next = compiler_new_block(c);
+		if (next == NULL)
+			return 0;
+	}
+	else
+		next = end;
+
+	VISIT(c, expr, s->v.Switch.test);
+	//if (!compiler_nameop(c, s->v.Switch.name, Store)) {
+	//	return 0;
+	//}
+
+	ADDOP_JABS(c, POP_JUMP_IF_FALSE, next);
+	if (asdl_seq_LEN(s->v.Switch.orelse)) {
+		ADDOP_JREL(c, JUMP_FORWARD, end);
+		compiler_use_next_block(c, next);
+		VISIT_SEQ(c, stmt, s->v.Switch.orelse);
+	}
+
+	compiler_use_next_block(c, end);
+	return 1;
+}
+
+static int
 compiler_for(struct compiler *c, stmt_ty s)
 {
     basicblock *start, *cleanup, *end;
@@ -2837,6 +2873,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         return compiler_while(c, s);
     case If_kind:
         return compiler_if(c, s);
+	case Switch_kind:
+		return compiler_switch(c, s);
     case Raise_kind:
         n = 0;
         if (s->v.Raise.exc) {

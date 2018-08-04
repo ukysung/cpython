@@ -126,6 +126,7 @@ static char *If_fields[]={
 };
 static PyTypeObject *Switch_type;
 static char *Switch_fields[]={
+    "name",
     "test",
     "orelse",
 };
@@ -900,7 +901,7 @@ static int init_types(void)
     if (!While_type) return 0;
     If_type = make_type("If", stmt_type, If_fields, 3);
     if (!If_type) return 0;
-    Switch_type = make_type("Switch", stmt_type, Switch_fields, 2);
+    Switch_type = make_type("Switch", stmt_type, Switch_fields, 3);
     if (!Switch_type) return 0;
     With_type = make_type("With", stmt_type, With_fields, 2);
     if (!With_type) return 0;
@@ -1556,10 +1557,15 @@ If(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno, int
 }
 
 stmt_ty
-Switch(expr_ty test, asdl_seq * orelse, int lineno, int col_offset, PyArena
-       *arena)
+Switch(identifier name, expr_ty test, asdl_seq * orelse, int lineno, int
+       col_offset, PyArena *arena)
 {
     stmt_ty p;
+    if (!name) {
+        PyErr_SetString(PyExc_ValueError,
+                        "field name is required for Switch");
+        return NULL;
+    }
     if (!test) {
         PyErr_SetString(PyExc_ValueError,
                         "field test is required for Switch");
@@ -1569,6 +1575,7 @@ Switch(expr_ty test, asdl_seq * orelse, int lineno, int col_offset, PyArena
     if (!p)
         return NULL;
     p->kind = Switch_kind;
+    p->v.Switch.name = name;
     p->v.Switch.test = test;
     p->v.Switch.orelse = orelse;
     p->lineno = lineno;
@@ -2925,6 +2932,11 @@ ast2obj_stmt(void* _o)
     case Switch_kind:
         result = PyType_GenericNew(Switch_type, NULL, NULL);
         if (!result) goto failed;
+        value = ast2obj_identifier(o->v.Switch.name);
+        if (!value) goto failed;
+        if (_PyObject_SetAttrId(result, &PyId_name, value) == -1)
+            goto failed;
+        Py_DECREF(value);
         value = ast2obj_expr(o->v.Switch.test);
         if (!value) goto failed;
         if (_PyObject_SetAttrId(result, &PyId_test, value) == -1)
@@ -5109,9 +5121,21 @@ obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena)
         return 1;
     }
     if (isinstance) {
+        identifier name;
         expr_ty test;
         asdl_seq* orelse;
 
+        if (_PyObject_HasAttrId(obj, &PyId_name)) {
+            int res;
+            tmp = _PyObject_GetAttrId(obj, &PyId_name);
+            if (tmp == NULL) goto failed;
+            res = obj2ast_identifier(tmp, &name, arena);
+            if (res != 0) goto failed;
+            Py_CLEAR(tmp);
+        } else {
+            PyErr_SetString(PyExc_TypeError, "required field \"name\" missing from Switch");
+            return 1;
+        }
         if (_PyObject_HasAttrId(obj, &PyId_test)) {
             int res;
             tmp = _PyObject_GetAttrId(obj, &PyId_test);
@@ -5151,7 +5175,7 @@ obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena)
             PyErr_SetString(PyExc_TypeError, "required field \"orelse\" missing from Switch");
             return 1;
         }
-        *out = Switch(test, orelse, lineno, col_offset, arena);
+        *out = Switch(name, test, orelse, lineno, col_offset, arena);
         if (*out == NULL) goto failed;
         return 0;
     }
