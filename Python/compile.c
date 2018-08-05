@@ -2160,7 +2160,7 @@ compiler_if(struct compiler *c, stmt_ty s)
 static int
 compiler_switch(struct compiler *c, stmt_ty s)
 {
-	basicblock *cases, *orelse, *end;
+	basicblock *cases, *orelse, *end, *next;
 	Py_ssize_t i, n;
 
 	cases = compiler_new_block(c);
@@ -2185,11 +2185,18 @@ compiler_switch(struct compiler *c, stmt_ty s)
 		if (cases == NULL)
 			return 0;
 
+		VISIT(c, expr, handler->v.CaseHandler.test);
+		compiler_nameop(c, s->v.Switch.name, Load);
+		ADDOP_I(c, COMPARE_OP, PyCmp_EQ);
+		ADDOP_JABS(c, POP_JUMP_IF_FALSE, cases);
 		VISIT_SEQ(c, stmt, handler->v.CaseHandler.body);
+		ADDOP_JREL(c, JUMP_FORWARD, end);
+		compiler_use_next_block(c, cases);
 	}
 
 	compiler_use_next_block(c, orelse);
 	VISIT_SEQ(c, stmt, s->v.Switch.orelse);
+	compiler_nameop(c, s->v.Switch.name, Del);
 	compiler_use_next_block(c, end);
 	return 1;
 }
