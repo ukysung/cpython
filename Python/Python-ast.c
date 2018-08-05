@@ -125,9 +125,11 @@ static char *If_fields[]={
     "orelse",
 };
 static PyTypeObject *Switch_type;
+_Py_IDENTIFIER(handlers);
 static char *Switch_fields[]={
     "name",
     "test",
+    "handlers",
     "orelse",
 };
 static PyTypeObject *With_type;
@@ -149,7 +151,6 @@ static char *Raise_fields[]={
     "cause",
 };
 static PyTypeObject *Try_type;
-_Py_IDENTIFIER(handlers);
 _Py_IDENTIFIER(finalbody);
 static char *Try_fields[]={
     "body",
@@ -459,6 +460,17 @@ _Py_IDENTIFIER(type);
 static char *ExceptHandler_fields[]={
     "type",
     "name",
+    "body",
+};
+static PyTypeObject *case_handler_type;
+static char *case_handler_attributes[] = {
+    "lineno",
+    "col_offset",
+};
+static PyObject* ast2obj_case_handler(void*);
+static PyTypeObject *CaseHandler_type;
+static char *CaseHandler_fields[]={
+    "test",
     "body",
 };
 static PyTypeObject *arguments_type;
@@ -901,7 +913,7 @@ static int init_types(void)
     if (!While_type) return 0;
     If_type = make_type("If", stmt_type, If_fields, 3);
     if (!If_type) return 0;
-    Switch_type = make_type("Switch", stmt_type, Switch_fields, 3);
+    Switch_type = make_type("Switch", stmt_type, Switch_fields, 4);
     if (!Switch_type) return 0;
     With_type = make_type("With", stmt_type, With_fields, 2);
     if (!With_type) return 0;
@@ -1170,6 +1182,13 @@ static int init_types(void)
     ExceptHandler_type = make_type("ExceptHandler", excepthandler_type,
                                    ExceptHandler_fields, 3);
     if (!ExceptHandler_type) return 0;
+    case_handler_type = make_type("case_handler", &AST_type, NULL, 0);
+    if (!case_handler_type) return 0;
+    if (!add_attributes(case_handler_type, case_handler_attributes, 2)) return
+        0;
+    CaseHandler_type = make_type("CaseHandler", case_handler_type,
+                                 CaseHandler_fields, 2);
+    if (!CaseHandler_type) return 0;
     arguments_type = make_type("arguments", &AST_type, arguments_fields, 6);
     if (!arguments_type) return 0;
     if (!add_attributes(arguments_type, NULL, 0)) return 0;
@@ -1203,6 +1222,8 @@ static int obj2ast_comprehension(PyObject* obj, comprehension_ty* out, PyArena*
                                  arena);
 static int obj2ast_excepthandler(PyObject* obj, excepthandler_ty* out, PyArena*
                                  arena);
+static int obj2ast_case_handler(PyObject* obj, case_handler_ty* out, PyArena*
+                                arena);
 static int obj2ast_arguments(PyObject* obj, arguments_ty* out, PyArena* arena);
 static int obj2ast_arg(PyObject* obj, arg_ty* out, PyArena* arena);
 static int obj2ast_keyword(PyObject* obj, keyword_ty* out, PyArena* arena);
@@ -1557,8 +1578,8 @@ If(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno, int
 }
 
 stmt_ty
-Switch(identifier name, expr_ty test, asdl_seq * orelse, int lineno, int
-       col_offset, PyArena *arena)
+Switch(identifier name, expr_ty test, asdl_seq * handlers, asdl_seq * orelse,
+       int lineno, int col_offset, PyArena *arena)
 {
     stmt_ty p;
     if (!name) {
@@ -1577,6 +1598,7 @@ Switch(identifier name, expr_ty test, asdl_seq * orelse, int lineno, int
     p->kind = Switch_kind;
     p->v.Switch.name = name;
     p->v.Switch.test = test;
+    p->v.Switch.handlers = handlers;
     p->v.Switch.orelse = orelse;
     p->lineno = lineno;
     p->col_offset = col_offset;
@@ -2525,6 +2547,27 @@ ExceptHandler(expr_ty type, identifier name, asdl_seq * body, int lineno, int
     return p;
 }
 
+case_handler_ty
+CaseHandler(expr_ty test, asdl_seq * body, int lineno, int col_offset, PyArena
+            *arena)
+{
+    case_handler_ty p;
+    if (!test) {
+        PyErr_SetString(PyExc_ValueError,
+                        "field test is required for CaseHandler");
+        return NULL;
+    }
+    p = (case_handler_ty)PyArena_Malloc(arena, sizeof(*p));
+    if (!p)
+        return NULL;
+    p->kind = CaseHandler_kind;
+    p->v.CaseHandler.test = test;
+    p->v.CaseHandler.body = body;
+    p->lineno = lineno;
+    p->col_offset = col_offset;
+    return p;
+}
+
 arguments_ty
 arguments(asdl_seq * args, arg_ty vararg, asdl_seq * kwonlyargs, asdl_seq *
           kw_defaults, arg_ty kwarg, asdl_seq * defaults, PyArena *arena)
@@ -2940,6 +2983,11 @@ ast2obj_stmt(void* _o)
         value = ast2obj_expr(o->v.Switch.test);
         if (!value) goto failed;
         if (_PyObject_SetAttrId(result, &PyId_test, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        value = ast2obj_list(o->v.Switch.handlers, ast2obj_case_handler);
+        if (!value) goto failed;
+        if (_PyObject_SetAttrId(result, &PyId_handlers, value) == -1)
             goto failed;
         Py_DECREF(value);
         value = ast2obj_list(o->v.Switch.orelse, ast2obj_stmt);
@@ -3819,6 +3867,49 @@ ast2obj_excepthandler(void* _o)
             goto failed;
         Py_DECREF(value);
         value = ast2obj_list(o->v.ExceptHandler.body, ast2obj_stmt);
+        if (!value) goto failed;
+        if (_PyObject_SetAttrId(result, &PyId_body, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        break;
+    }
+    value = ast2obj_int(o->lineno);
+    if (!value) goto failed;
+    if (_PyObject_SetAttrId(result, &PyId_lineno, value) < 0)
+        goto failed;
+    Py_DECREF(value);
+    value = ast2obj_int(o->col_offset);
+    if (!value) goto failed;
+    if (_PyObject_SetAttrId(result, &PyId_col_offset, value) < 0)
+        goto failed;
+    Py_DECREF(value);
+    return result;
+failed:
+    Py_XDECREF(value);
+    Py_XDECREF(result);
+    return NULL;
+}
+
+PyObject*
+ast2obj_case_handler(void* _o)
+{
+    case_handler_ty o = (case_handler_ty)_o;
+    PyObject *result = NULL, *value = NULL;
+    if (!o) {
+        Py_INCREF(Py_None);
+        return Py_None;
+    }
+
+    switch (o->kind) {
+    case CaseHandler_kind:
+        result = PyType_GenericNew(CaseHandler_type, NULL, NULL);
+        if (!result) goto failed;
+        value = ast2obj_expr(o->v.CaseHandler.test);
+        if (!value) goto failed;
+        if (_PyObject_SetAttrId(result, &PyId_test, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        value = ast2obj_list(o->v.CaseHandler.body, ast2obj_stmt);
         if (!value) goto failed;
         if (_PyObject_SetAttrId(result, &PyId_body, value) == -1)
             goto failed;
@@ -5123,6 +5214,7 @@ obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena)
     if (isinstance) {
         identifier name;
         expr_ty test;
+        asdl_seq* handlers;
         asdl_seq* orelse;
 
         if (_PyObject_HasAttrId(obj, &PyId_name)) {
@@ -5145,6 +5237,34 @@ obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena)
             Py_CLEAR(tmp);
         } else {
             PyErr_SetString(PyExc_TypeError, "required field \"test\" missing from Switch");
+            return 1;
+        }
+        if (_PyObject_HasAttrId(obj, &PyId_handlers)) {
+            int res;
+            Py_ssize_t len;
+            Py_ssize_t i;
+            tmp = _PyObject_GetAttrId(obj, &PyId_handlers);
+            if (tmp == NULL) goto failed;
+            if (!PyList_Check(tmp)) {
+                PyErr_Format(PyExc_TypeError, "Switch field \"handlers\" must be a list, not a %.200s", tmp->ob_type->tp_name);
+                goto failed;
+            }
+            len = PyList_GET_SIZE(tmp);
+            handlers = _Py_asdl_seq_new(len, arena);
+            if (handlers == NULL) goto failed;
+            for (i = 0; i < len; i++) {
+                case_handler_ty val;
+                res = obj2ast_case_handler(PyList_GET_ITEM(tmp, i), &val, arena);
+                if (res != 0) goto failed;
+                if (len != PyList_GET_SIZE(tmp)) {
+                    PyErr_SetString(PyExc_RuntimeError, "Switch field \"handlers\" changed size during iteration");
+                    goto failed;
+                }
+                asdl_seq_SET(handlers, i, val);
+            }
+            Py_CLEAR(tmp);
+        } else {
+            PyErr_SetString(PyExc_TypeError, "required field \"handlers\" missing from Switch");
             return 1;
         }
         if (_PyObject_HasAttrId(obj, &PyId_orelse)) {
@@ -5175,7 +5295,7 @@ obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena)
             PyErr_SetString(PyExc_TypeError, "required field \"orelse\" missing from Switch");
             return 1;
         }
-        *out = Switch(name, test, orelse, lineno, col_offset, arena);
+        *out = Switch(name, test, handlers, orelse, lineno, col_offset, arena);
         if (*out == NULL) goto failed;
         return 0;
     }
@@ -7644,6 +7764,99 @@ obj2ast_excepthandler(PyObject* obj, excepthandler_ty* out, PyArena* arena)
 }
 
 int
+obj2ast_case_handler(PyObject* obj, case_handler_ty* out, PyArena* arena)
+{
+    int isinstance;
+
+    PyObject *tmp = NULL;
+    int lineno;
+    int col_offset;
+
+    if (obj == Py_None) {
+        *out = NULL;
+        return 0;
+    }
+    if (_PyObject_HasAttrId(obj, &PyId_lineno)) {
+        int res;
+        tmp = _PyObject_GetAttrId(obj, &PyId_lineno);
+        if (tmp == NULL) goto failed;
+        res = obj2ast_int(tmp, &lineno, arena);
+        if (res != 0) goto failed;
+        Py_CLEAR(tmp);
+    } else {
+        PyErr_SetString(PyExc_TypeError, "required field \"lineno\" missing from case_handler");
+        return 1;
+    }
+    if (_PyObject_HasAttrId(obj, &PyId_col_offset)) {
+        int res;
+        tmp = _PyObject_GetAttrId(obj, &PyId_col_offset);
+        if (tmp == NULL) goto failed;
+        res = obj2ast_int(tmp, &col_offset, arena);
+        if (res != 0) goto failed;
+        Py_CLEAR(tmp);
+    } else {
+        PyErr_SetString(PyExc_TypeError, "required field \"col_offset\" missing from case_handler");
+        return 1;
+    }
+    isinstance = PyObject_IsInstance(obj, (PyObject*)CaseHandler_type);
+    if (isinstance == -1) {
+        return 1;
+    }
+    if (isinstance) {
+        expr_ty test;
+        asdl_seq* body;
+
+        if (_PyObject_HasAttrId(obj, &PyId_test)) {
+            int res;
+            tmp = _PyObject_GetAttrId(obj, &PyId_test);
+            if (tmp == NULL) goto failed;
+            res = obj2ast_expr(tmp, &test, arena);
+            if (res != 0) goto failed;
+            Py_CLEAR(tmp);
+        } else {
+            PyErr_SetString(PyExc_TypeError, "required field \"test\" missing from CaseHandler");
+            return 1;
+        }
+        if (_PyObject_HasAttrId(obj, &PyId_body)) {
+            int res;
+            Py_ssize_t len;
+            Py_ssize_t i;
+            tmp = _PyObject_GetAttrId(obj, &PyId_body);
+            if (tmp == NULL) goto failed;
+            if (!PyList_Check(tmp)) {
+                PyErr_Format(PyExc_TypeError, "CaseHandler field \"body\" must be a list, not a %.200s", tmp->ob_type->tp_name);
+                goto failed;
+            }
+            len = PyList_GET_SIZE(tmp);
+            body = _Py_asdl_seq_new(len, arena);
+            if (body == NULL) goto failed;
+            for (i = 0; i < len; i++) {
+                stmt_ty val;
+                res = obj2ast_stmt(PyList_GET_ITEM(tmp, i), &val, arena);
+                if (res != 0) goto failed;
+                if (len != PyList_GET_SIZE(tmp)) {
+                    PyErr_SetString(PyExc_RuntimeError, "CaseHandler field \"body\" changed size during iteration");
+                    goto failed;
+                }
+                asdl_seq_SET(body, i, val);
+            }
+            Py_CLEAR(tmp);
+        } else {
+            PyErr_SetString(PyExc_TypeError, "required field \"body\" missing from CaseHandler");
+            return 1;
+        }
+        *out = CaseHandler(test, body, lineno, col_offset, arena);
+        if (*out == NULL) goto failed;
+        return 0;
+    }
+
+    PyErr_Format(PyExc_TypeError, "expected some sort of case_handler, but got %R", obj);
+    failed:
+    Py_XDECREF(tmp);
+    return 1;
+}
+
+int
 obj2ast_arguments(PyObject* obj, arguments_ty* out, PyArena* arena)
 {
     PyObject* tmp = NULL;
@@ -8157,6 +8370,10 @@ PyInit__ast(void)
         < 0) return NULL;
     if (PyDict_SetItemString(d, "ExceptHandler", (PyObject*)ExceptHandler_type)
         < 0) return NULL;
+    if (PyDict_SetItemString(d, "case_handler", (PyObject*)case_handler_type) <
+        0) return NULL;
+    if (PyDict_SetItemString(d, "CaseHandler", (PyObject*)CaseHandler_type) <
+        0) return NULL;
     if (PyDict_SetItemString(d, "arguments", (PyObject*)arguments_type) < 0)
         return NULL;
     if (PyDict_SetItemString(d, "arg", (PyObject*)arg_type) < 0) return NULL;

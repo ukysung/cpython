@@ -428,9 +428,18 @@ validate_stmt(stmt_ty stmt)
             validate_body(stmt->v.If.body, "If") &&
             validate_stmts(stmt->v.If.orelse);
 	case Switch_kind:
-		return validate_expr(stmt->v.Switch.test, Load) &&
-			validate_stmts(stmt->v.Switch.orelse);
-    case With_kind:
+		if (!asdl_seq_LEN(stmt->v.Switch.handlers) &&
+			asdl_seq_LEN(stmt->v.Switch.orelse)) {
+			PyErr_SetString(PyExc_ValueError, "Switch has orelse but no except handlers");
+			return 0;
+		}
+		for (i = 0; i < asdl_seq_LEN(stmt->v.Switch.handlers); i++) {
+			case_handler_ty handler = asdl_seq_GET(stmt->v.Switch.handlers, i);
+			if (validate_body(handler->v.CaseHandler.body, "CaseHandler"))
+				return 0;
+		}
+		return !asdl_seq_LEN(stmt->v.Switch.orelse) || validate_stmts(stmt->v.Switch.orelse);
+	case With_kind:
         if (!validate_nonempty_seq(stmt->v.With.items, "items", "With"))
             return 0;
         for (i = 0; i < asdl_seq_LEN(stmt->v.With.items); i++) {
@@ -3655,101 +3664,80 @@ ast_for_if_stmt(struct compiling *c, const node *n)
     return NULL;
 }
 
-static stmt_ty
-ast_for_switch_stmt(struct compiling *c, const node *n)
+static excepthandler_ty
+ast_for_case_clause(struct compiling *c, const node *node_case, node *body)
 {
-	/* switch_stmt: 'switch' test ':' NEWLINE
-	('case' test ':' suite)*
-	['else' ':' suite]
-	*/
-	char *s;
-	identifier id;
+	/* case_clause: 'case' [test] */
+	REQ(node_case, case_clause);
+	REQ(body, suite);
 
-	REQ(n, switch_stmt);
-
-	id = new_identifier("_tmp", c);
-
-	s = STR(CHILD(n, 4));
-	/* s[0], the first character in the string, will be
-	'c' for c_ase, or
-	'e' for e_lse
-	*/
-	if (s[0] == 'e') {
+	if (NCH(node_case) == 2) {
 		expr_ty expression;
-		asdl_seq *seq;
+		asdl_seq *suite_seq;
 
-		expression = ast_for_expr(c, CHILD(n, 1));
+		expression = ast_for_expr(c, CHILD(node_case, 1));
 		if (!expression)
 			return NULL;
-		seq = ast_for_suite(c, CHILD(n, 6));
-		if (!seq)
+		suite_seq = ast_for_suite(c, body);
+		if (!suite_seq)
 			return NULL;
 
-		return Switch(id, expression, seq, LINENO(n), n->n_col_offset,
-			c->c_arena);
-	}
-	else if (s[0] == 'c') {
-		int i, n_elif, has_else = 0;
-		expr_ty expression;
-		asdl_seq *orelse = NULL;
-		n_elif = NCH(n) - 4;
-		/* must reference the child n_elif+1 since 'else' token is third,
-		not fourth, child from the end. */
-		if (TYPE(CHILD(n, (n_elif + 1))) == NAME
-			&& STR(CHILD(n, (n_elif + 1)))[2] == 's') {
-			has_else = 1;
-			n_elif -= 3;
-		}
-		n_elif /= 4;
-
-		if (has_else) {
-			asdl_seq *suite_seq;
-
-			orelse = _Py_asdl_seq_new(1, c->c_arena);
-			if (!orelse)
-				return NULL;
-			expression = ast_for_expr(c, CHILD(n, NCH(n) - 6));
-			if (!expression)
-				return NULL;
-			suite_seq = ast_for_suite(c, CHILD(n, NCH(n) - 1));
-			if (!suite_seq)
-				return NULL;
-
-			asdl_seq_SET(orelse, 0,
-				Switch(id, expression, suite_seq,
-					LINENO(CHILD(n, NCH(n) - 6)),
-					CHILD(n, NCH(n) - 6)->n_col_offset,
-					c->c_arena));
-			/* the just-created orelse handled the last elif */
-			n_elif--;
-		}
-
-		for (i = 0; i < n_elif; i++) {
-			int off = 5 + (n_elif - i - 1) * 4;
-			asdl_seq *newobj = _Py_asdl_seq_new(1, c->c_arena);
-			if (!newobj)
-				return NULL;
-			expression = ast_for_expr(c, CHILD(n, off));
-			if (!expression)
-				return NULL;
-
-			asdl_seq_SET(newobj, 0,
-				Switch(id, expression, orelse,
-					LINENO(CHILD(n, off)),
-					CHILD(n, off)->n_col_offset, c->c_arena));
-			orelse = newobj;
-		}
-		expression = ast_for_expr(c, CHILD(n, 1));
-		if (!expression)
-			return NULL;
-
-		return Switch(id, expression, orelse,
-			LINENO(n), n->n_col_offset, c->c_arena);
+		return CaseHandler(expression, suite_seq, LINENO(node_case),
+			node_case->n_col_offset, c->c_arena);
 	}
 
 	PyErr_Format(PyExc_SystemError,
-		"unexpected token in 'switch' statement: %s", s);
+		"wrong number of children for 'case' clause: %d",
+		NCH(node_case));
 	return NULL;
+}
+
+static stmt_ty
+ast_for_switch_stmt(struct compiling *c, const node *n)
+{
+	const int nch = NCH(n);
+	int n_case = (nch - 3) / 3;
+	expr_ty expression = NULL;
+	asdl_seq *handlers = NULL, *orelse = NULL;
+	identifier id = NULL;
+
+	REQ(n, switch_stmt);
+
+	expression = ast_for_expr(c, CHILD(n, 1));
+
+	if (TYPE(CHILD(n, nch - 3)) == NAME) {
+		/* we can assume it's an "else",
+		otherwise it would have a type of except_clause */
+		orelse = ast_for_suite(c, CHILD(n, nch - 1));
+		if (orelse == NULL)
+			return NULL;
+		n_case--;
+	}
+	else if (TYPE(CHILD(n, nch - 3)) != case_clause) {
+		ast_error(c, n, "malformed 'switch' statement");
+		return NULL;
+	}
+
+	if (n_case > 0) {
+		int i;
+		/* process except statements to create a try ... except */
+		handlers = _Py_asdl_seq_new(n_case, c->c_arena);
+		if (handlers == NULL)
+			return NULL;
+
+		for (i = 0; i < n_case; i++) {
+			case_handler_ty e = ast_for_case_clause(c, CHILD(n, 4 + i * 3),
+				CHILD(n, 6 + i * 3));
+			if (!e)
+				return NULL;
+			asdl_seq_SET(handlers, i, e);
+		}
+	}
+	
+	id = new_identifier("_tmp", c);
+
+	assert(asdl_seq_LEN(handlers) || asdl_seq_LEN(orelse));
+	return Switch(id, expression, handlers, orelse, LINENO(n), n->n_col_offset, c->c_arena);
 }
 
 static stmt_ty

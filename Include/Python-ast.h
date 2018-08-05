@@ -28,6 +28,8 @@ typedef struct _comprehension *comprehension_ty;
 
 typedef struct _excepthandler *excepthandler_ty;
 
+typedef struct _case_handler *case_handler_ty;
+
 typedef struct _arguments *arguments_ty;
 
 typedef struct _arg *arg_ty;
@@ -153,6 +155,7 @@ struct _stmt {
         struct {
             identifier name;
             expr_ty test;
+            asdl_seq *handlers;
             asdl_seq *orelse;
         } Switch;
         
@@ -413,6 +416,20 @@ struct _excepthandler {
     int col_offset;
 };
 
+enum _case_handler_kind {CaseHandler_kind=1};
+struct _case_handler {
+    enum _case_handler_kind kind;
+    union {
+        struct {
+            expr_ty test;
+            asdl_seq *body;
+        } CaseHandler;
+        
+    } v;
+    int lineno;
+    int col_offset;
+};
+
 struct _arguments {
     asdl_seq *args;
     arg_ty vararg;
@@ -491,9 +508,9 @@ stmt_ty _Py_While(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno,
 #define If(a0, a1, a2, a3, a4, a5) _Py_If(a0, a1, a2, a3, a4, a5)
 stmt_ty _Py_If(expr_ty test, asdl_seq * body, asdl_seq * orelse, int lineno,
                int col_offset, PyArena *arena);
-#define Switch(a0, a1, a2, a3, a4, a5) _Py_Switch(a0, a1, a2, a3, a4, a5)
-stmt_ty _Py_Switch(identifier name, expr_ty test, asdl_seq * orelse, int
-                   lineno, int col_offset, PyArena *arena);
+#define Switch(a0, a1, a2, a3, a4, a5, a6) _Py_Switch(a0, a1, a2, a3, a4, a5, a6)
+stmt_ty _Py_Switch(identifier name, expr_ty test, asdl_seq * handlers, asdl_seq
+                   * orelse, int lineno, int col_offset, PyArena *arena);
 #define With(a0, a1, a2, a3, a4) _Py_With(a0, a1, a2, a3, a4)
 stmt_ty _Py_With(asdl_seq * items, asdl_seq * body, int lineno, int col_offset,
                  PyArena *arena);
@@ -626,6 +643,9 @@ comprehension_ty _Py_comprehension(expr_ty target, expr_ty iter, asdl_seq *
 excepthandler_ty _Py_ExceptHandler(expr_ty type, identifier name, asdl_seq *
                                    body, int lineno, int col_offset, PyArena
                                    *arena);
+#define CaseHandler(a0, a1, a2, a3, a4) _Py_CaseHandler(a0, a1, a2, a3, a4)
+case_handler_ty _Py_CaseHandler(expr_ty test, asdl_seq * body, int lineno, int
+                                col_offset, PyArena *arena);
 #define arguments(a0, a1, a2, a3, a4, a5, a6) _Py_arguments(a0, a1, a2, a3, a4, a5, a6)
 arguments_ty _Py_arguments(asdl_seq * args, arg_ty vararg, asdl_seq *
                            kwonlyargs, asdl_seq * kw_defaults, arg_ty kwarg,

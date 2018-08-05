@@ -2160,32 +2160,36 @@ compiler_if(struct compiler *c, stmt_ty s)
 static int
 compiler_switch(struct compiler *c, stmt_ty s)
 {
-	basicblock *end, *next;
-	assert(s->kind == Switch_kind);
+	basicblock *cases, *orelse, *end;
+	Py_ssize_t i, n;
+
+	cases = compiler_new_block(c);
+	orelse = compiler_new_block(c);
 	end = compiler_new_block(c);
-	if (end == NULL)
+
+	if (cases == NULL || orelse == NULL || end == NULL)
 		return 0;
 
-	if (asdl_seq_LEN(s->v.Switch.orelse)) {
-		next = compiler_new_block(c);
-		if (next == NULL)
-			return 0;
-	}
-	else
-		next = end;
-
 	VISIT(c, expr, s->v.Switch.test);
-	//if (!compiler_nameop(c, s->v.Switch.name, Store)) {
-	//	return 0;
-	//}
+	compiler_nameop(c, s->v.Switch.name, Store);
 
-	ADDOP_JABS(c, POP_JUMP_IF_FALSE, next);
-	if (asdl_seq_LEN(s->v.Switch.orelse)) {
-		ADDOP_JREL(c, JUMP_FORWARD, end);
-		compiler_use_next_block(c, next);
-		VISIT_SEQ(c, stmt, s->v.Switch.orelse);
+	n = asdl_seq_LEN(s->v.Switch.handlers);
+	compiler_use_next_block(c, cases);
+	for (i = 0; i < n; i++) {
+		case_handler_ty handler = (case_handler_ty)asdl_seq_GET(s->v.Switch.handlers, i);
+
+		c->u->u_lineno_set = 0;
+		c->u->u_lineno = handler->lineno;
+		c->u->u_col_offset = handler->col_offset;
+		cases = compiler_new_block(c);
+		if (cases == NULL)
+			return 0;
+
+		VISIT_SEQ(c, stmt, handler->v.CaseHandler.body);
 	}
 
+	compiler_use_next_block(c, orelse);
+	VISIT_SEQ(c, stmt, s->v.Switch.orelse);
 	compiler_use_next_block(c, end);
 	return 1;
 }
