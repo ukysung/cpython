@@ -430,7 +430,7 @@ validate_stmt(stmt_ty stmt)
 	case Switch_kind:
 		if (!asdl_seq_LEN(stmt->v.Switch.handlers) &&
 			asdl_seq_LEN(stmt->v.Switch.orelse)) {
-			PyErr_SetString(PyExc_ValueError, "Switch has orelse but no except handlers");
+			PyErr_SetString(PyExc_ValueError, "Switch has orelse but no case handlers");
 			return 0;
 		}
 		for (i = 0; i < asdl_seq_LEN(stmt->v.Switch.handlers); i++) {
@@ -3707,7 +3707,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 
 	if (TYPE(CHILD(n, nch - 3)) == NAME) {
 		/* we can assume it's an "else",
-		otherwise it would have a type of except_clause */
+		otherwise it would have a type of case_clause */
 		orelse = ast_for_suite(c, CHILD(n, nch - 1));
 		if (orelse == NULL)
 			return NULL;
@@ -3720,7 +3720,7 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 
 	if (n_case > 0) {
 		int i;
-		/* process except statements to create a try ... except */
+		/* process except statements to create a switch ... case */
 		handlers = _Py_asdl_seq_new(n_case, c->c_arena);
 		if (handlers == NULL)
 			return NULL;

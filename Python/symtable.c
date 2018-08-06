@@ -1247,6 +1247,12 @@ symtable_visit_stmt(struct symtable *st, stmt_ty s)
         if (s->v.If.orelse)
             VISIT_SEQ(st, stmt, s->v.If.orelse);
         break;
+	case Switch_kind:
+		VISIT(st, expr, s->v.Switch.test);
+		VISIT_SEQ(st, case_handler, s->v.Switch.handlers);
+		if (s->v.Switch.orelse)
+			VISIT_SEQ(st, stmt, s->v.Switch.orelse);
+		break;
     case Raise_kind:
         if (s->v.Raise.exc) {
             VISIT(st, expr, s->v.Raise.exc);
@@ -1619,6 +1625,14 @@ symtable_visit_excepthandler(struct symtable *st, excepthandler_ty eh)
             return 0;
     VISIT_SEQ(st, stmt, eh->v.ExceptHandler.body);
     return 1;
+}
+
+static int
+symtable_visit_case_handler(struct symtable *st, case_handler_ty ch)
+{
+	VISIT(st, expr, ch->v.CaseHandler.test);
+	VISIT_SEQ(st, stmt, ch->v.CaseHandler.body);
+	return 1;
 }
 
 static int
