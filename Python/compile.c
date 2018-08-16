@@ -2196,8 +2196,8 @@ compiler_switch(struct compiler *c, stmt_ty s)
 
 	compiler_use_next_block(c, orelse);
 	VISIT_SEQ(c, stmt, s->v.Switch.orelse);
-	compiler_nameop(c, s->v.Switch.name, Del);
 	compiler_use_next_block(c, end);
+	compiler_nameop(c, s->v.Switch.name, Del);
 	return 1;
 }
 
