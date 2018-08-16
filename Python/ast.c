@@ -427,18 +427,18 @@ validate_stmt(stmt_ty stmt)
         return validate_expr(stmt->v.If.test, Load) &&
             validate_body(stmt->v.If.body, "If") &&
             validate_stmts(stmt->v.If.orelse);
-	case Switch_kind:
-		if (!asdl_seq_LEN(stmt->v.Switch.handlers) &&
-			asdl_seq_LEN(stmt->v.Switch.orelse)) {
-			PyErr_SetString(PyExc_ValueError, "Switch has orelse but no case handlers");
-			return 0;
-		}
-		for (i = 0; i < asdl_seq_LEN(stmt->v.Switch.handlers); i++) {
-			case_handler_ty handler = asdl_seq_GET(stmt->v.Switch.handlers, i);
-			if (validate_body(handler->v.CaseHandler.body, "CaseHandler"))
-				return 0;
-		}
-		return !asdl_seq_LEN(stmt->v.Switch.orelse) || validate_stmts(stmt->v.Switch.orelse);
+	//case Switch_kind:
+	//	if (!asdl_seq_LEN(stmt->v.Switch.handlers) &&
+	//		asdl_seq_LEN(stmt->v.Switch.orelse)) {
+	//		PyErr_SetString(PyExc_ValueError, "Switch has orelse but no case handlers");
+	//		return 0;
+	//	}
+	//	for (i = 0; i < asdl_seq_LEN(stmt->v.Switch.handlers); i++) {
+	//		case_handler_ty handler = asdl_seq_GET(stmt->v.Switch.handlers, i);
+	//		if (validate_body(handler->v.CaseHandler.body, "CaseHandler"))
+	//			return 0;
+	//	}
+	//	return !asdl_seq_LEN(stmt->v.Switch.orelse) || validate_stmts(stmt->v.Switch.orelse);
 	case With_kind:
         if (!validate_nonempty_seq(stmt->v.With.items, "items", "With"))
             return 0;
@@ -3665,30 +3665,30 @@ ast_for_if_stmt(struct compiling *c, const node *n)
 }
 
 static excepthandler_ty
-ast_for_case_clause(struct compiling *c, const node *node_case, node *body)
+ast_for_case_clause(struct compiling *c, const node *case_test, node *case_body)
 {
 	/* case_clause: 'case' [test] */
-	REQ(node_case, case_clause);
-	REQ(body, suite);
+	REQ(case_test, test);
+	REQ(case_body, suite);
 
-	if (NCH(node_case) == 2) {
+	if (NCH(case_test) == 1) {
 		expr_ty expression;
 		asdl_seq *suite_seq;
 
-		expression = ast_for_expr(c, CHILD(node_case, 1));
+		expression = ast_for_expr(c, case_test);
 		if (!expression)
 			return NULL;
-		suite_seq = ast_for_suite(c, body);
+		suite_seq = ast_for_suite(c, case_body);
 		if (!suite_seq)
 			return NULL;
 
-		return CaseHandler(expression, suite_seq, LINENO(node_case),
-			node_case->n_col_offset, c->c_arena);
+		return CaseHandler(expression, suite_seq, LINENO(case_test),
+			case_test->n_col_offset, c->c_arena);
 	}
 
 	PyErr_Format(PyExc_SystemError,
 		"wrong number of children for 'case' clause: %d",
-		NCH(node_case));
+		NCH(case_test));
 	return NULL;
 }
 
@@ -3696,15 +3696,16 @@ static stmt_ty
 ast_for_switch_stmt(struct compiling *c, const node *n)
 {
 	const int nch = NCH(n);
-	int n_case = (nch - 3) / 3;
+	int n_case = (nch - 3) / 4;
 	expr_ty expression = NULL;
 	asdl_seq *handlers = NULL, *orelse = NULL;
 	identifier id = NULL;
+	static int tmp_number = 0;
+	char tmp_str[16];
 
 	REQ(n, switch_stmt);
 
 	expression = ast_for_expr(c, CHILD(n, 1));
-
 	if (TYPE(CHILD(n, nch - 3)) == NAME) {
 		/* we can assume it's an "else",
 		otherwise it would have a type of case_clause */
@@ -3713,28 +3714,29 @@ ast_for_switch_stmt(struct compiling *c, const node *n)
 			return NULL;
 		n_case--;
 	}
-	else if (TYPE(CHILD(n, nch - 3)) != case_clause) {
+	else if (TYPE(CHILD(n, nch - 3)) != test) {
 		ast_error(c, n, "malformed 'switch' statement");
 		return NULL;
 	}
 
 	if (n_case > 0) {
 		int i;
-		/* process except statements to create a switch ... case */
+		/* process case statements to create a switch ... case */
 		handlers = _Py_asdl_seq_new(n_case, c->c_arena);
 		if (handlers == NULL)
 			return NULL;
 
 		for (i = 0; i < n_case; i++) {
-			case_handler_ty e = ast_for_case_clause(c, CHILD(n, 4 + i * 3),
-				CHILD(n, 6 + i * 3));
+			case_handler_ty e = ast_for_case_clause(c, CHILD(n, 5 + i * 4),
+				CHILD(n, 7 + i * 4));
 			if (!e)
 				return NULL;
 			asdl_seq_SET(handlers, i, e);
 		}
 	}
 	
-	id = new_identifier("_tmp", c);
+	sprintf(tmp_str, "_switch%d", tmp_number++);
+	id = new_identifier(tmp_str, c);
 
 	assert(asdl_seq_LEN(handlers) || asdl_seq_LEN(orelse));
 	return Switch(id, expression, handlers, orelse, LINENO(n), n->n_col_offset, c->c_arena);
